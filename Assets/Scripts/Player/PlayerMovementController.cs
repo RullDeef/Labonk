@@ -17,39 +17,24 @@ public class PlayerMovementController : NetworkBehaviour
     {
         rigidBody = GetComponent<Rigidbody>();
         activeCamera = FindObjectOfType<Camera>();
-        
     }
 
     private void Start()
     {
         if (IsLocalPlayer)
-        {
-            Debug.LogError("local player!");
             FindObjectOfType<CameraController>().Target = transform;
-        }
         else
-        {
-            Debug.LogError("not local player!");
             DestroyImmediate(this);
-        }
     }
 
     private void FixedUpdate()
     {
-        // if (!IsOwner)
-        //     return;
-
         UpdateMovement();
         UpdateRotation();
     }
 
     private void OnMove(InputValue value)
     {
-        // Debug.LogError("OnMove registed!");
-        // if (!IsOwner)
-        //     return;
-        
-        // Debug.LogError("OnMove performed!");
         moveInputValue = value.Get<Vector2>();
     }
 

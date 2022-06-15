@@ -1,119 +1,100 @@
 using System;
 using UnityEngine;
+using System.Collections.Generic;
+using Unity.Netcode;
+using UnityEngine.Networking;
 
 /**
  *  Любой предмет можно держать в руках только в 1 экземпляре кроме булок.
  *  Взять другой предмет можно только свободными руками.
  */
-public class ItemController : MonoBehaviour
+public class ItemController : NetworkBehaviour
 {
-    // public PickableItem PickedItem { get; private set; }
+    public PickableItem PickedItem { get; private set; }
 
-    // public Action<PickableItem> OnItemGrabbed;
+    [SerializeField] private Transform holdingSpot;
 
-    // private void OnControllerColliderHit(ControllerColliderHit hit) {
-        
-    // }
+    private HashSet<WorkSpot> nearWorkSpots = new();
 
-    // public void Grab()
-    // {
-    //     if (PickedItem != null)
-    //     {
-    //         WorkSpot spot = GetNearestSpotWithDistance(out float distance);
-    //         if (distance < maxGrabDistance && spot.HasNotebook)
-    //         {
-    //             CurrentState = State.NOTEBOOK_GRABBING;
-    //             pickedNotebook = spot.GrabNotebook();
-    //             pickedSpot = spot;
-    //             Invoke("FinishGrabbing", grabbingTime);
-    //         }
-    //         else
-    //         {
-    //             Debug.Log("conditions did not met! :( distance was: " + distance);
-    //         }
-    //     }
-    //     else
-    //     {
-    //         Debug.Log("invalid state for grab: " + CurrentState);
-    //     }
-    // }
-    
-    // public void PlaceNearby(Transform notebook)
-    // {
-    //     if (CurrentState == State.NOTEBOOK_GRABBED)
-    //     {
-    //         WorkSpot spot = GetNearestSpotWithDistance(out float distance);
-    //         if (distance < maxPlaceDistance && !spot.HasNotebook)
-    //         {
-    //             CurrentState = State.NOTEBOOK_PLACING;
-    //             pickedNotebook = notebook;
-    //             pickedSpot = spot;
-    //             Invoke("FinishPlacing", placingTime);
-    //         }
-    //         else
-    //         {
-    //             Debug.Log("conditions did not met! :( distance was: " + distance);
-    //         }
-    //     }
-    //     else
-    //     {
-    //         Debug.Log("invalid state for put: " + CurrentState);
-    //     }
-    // }
+    private void Start()
+    {
+        if (!IsLocalPlayer)
+            DestroyImmediate(this);
+    }
 
-    // public bool CanGrab
-    // {
-    //     get
-    //     {
-    //         if (CurrentState == State.NOTEBOOK_PLACED)
-    //         {
-    //             WorkSpot spot = GetNearestSpotWithDistance(out float distance);
-    //             if (distance < maxGrabDistance && spot.HasNotebook)
-    //                 return true;
-    //         }
-    //         return false;
-    //     }
-    // }
+    private void OnTriggerEnter(Collider other)
+    {
+        WorkSpot spot = other.GetComponent<WorkSpot>();
 
-    // public bool CanPlace
-    // {
-    //     get
-    //     {
-    //         if (CurrentState == State.NOTEBOOK_GRABBED)
-    //         {
-    //             WorkSpot spot = GetNearestSpotWithDistance(out float distance);
-    //             if (distance < maxPlaceDistance && !spot.HasNotebook)
-    //                 return true;
-    //         }
-    //         return false;
-    //     }
-    // }
+        if (spot != null)
+            nearWorkSpots.Add(spot);
+    }
 
-    // public bool IsInProcess => CurrentState == State.NOTEBOOK_GRABBING
-    //     || CurrentState == State.NOTEBOOK_PLACING;
+    private void OnTriggerExit(Collider other)
+    {
+        WorkSpot spot = other.GetComponent<WorkSpot>();
 
-    // private void FinishGrabbing()
-    // {
-    //     CurrentState = State.NOTEBOOK_GRABBED;
+        if (spot != null)
+            nearWorkSpots.Remove(spot);
+    }
 
-    //     OnNotebookGrabbed.Invoke(pickedNotebook);
-    //     pickedNotebook = null;
-    //     pickedSpot = null;
-    // }
+    public void OnGrab() // input action
+    {
+        PerformGrabActionServerRpc();
+    }
 
-    // private void FinishPlacing()
-    // {
-    //     CurrentState = State.NOTEBOOK_PLACED;
+    [ServerRpc]
+    private void PerformGrabActionServerRpc()
+    {
+        if (PickedItem == null) // actual grab
+        {
+            Debug.Log("Grab action!");
+            WorkSpot spot = GetNearestWorkSpot();
+            if (spot != null && spot.HasNotebook)
+            {
+                Transform obj = spot.GrabNotebook();
+                PickedItem = obj.GetComponent<PickableItem>();
 
-    //     pickedSpot.PlaceNotebook(pickedNotebook);
-    //     pickedNotebook = null;
-    //     pickedSpot = null;
-    // }
+                obj.parent = holdingSpot;
+                obj.localPosition = Vector3.zero;
+                obj.localRotation = Quaternion.identity;
+            }
+        }
+        else // try to place
+        {
+            Debug.Log("Place action!");
+            WorkSpot spot = GetNearestWorkSpot();
+            if (spot != null && !spot.HasNotebook)
+            {
+                spot.PlaceNotebook(PickedItem.transform);
+                PickedItem = null;
+            }
+        }
+    }
 
-    // private WorkSpot GetNearestSpotWithDistance(out float distance)
-    // {
-    //     WorkSpot spot = workSpotManager.GetNearestWorkSpot(transform.position);
-    //     distance = (spot.transform.position - transform.position).magnitude;
-    //     return spot;
-    // }
+    private WorkSpot GetNearestWorkSpot()
+    {
+        WorkSpot nearest = null;
+        float distance = float.NaN;
+
+        foreach (var spot in nearWorkSpots)
+        {
+            if (nearest == null)
+            {
+                nearest = spot;
+                distance = (spot.transform.position - transform.position).sqrMagnitude;
+                continue;
+            }
+
+            float currDistance = (spot.transform.position - transform.position).sqrMagnitude;
+            
+            if (currDistance < distance)
+            {
+                nearest = spot;
+                distance = currDistance;
+            }
+        }
+
+        return nearest;
+    }
 }
